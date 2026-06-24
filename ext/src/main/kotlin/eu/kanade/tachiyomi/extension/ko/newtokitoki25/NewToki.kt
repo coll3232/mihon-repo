@@ -6,7 +6,13 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Base64
+import android.content.SharedPreferences
+import android.app.Application
+import android.content.Context
+import androidx.preference.EditTextPreference
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -15,6 +21,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import okhttp3.Headers
 import okhttp3.Interceptor
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -28,18 +35,84 @@ import java.net.URLEncoder
 import java.security.SecureRandom
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
-class NewToki : HttpSource() {
+class NewToki : HttpSource(), ConfigurableSource {
 
-    override val name = "NewToki (toki25)"
+    override val name = "toon Ki"
 
-    override val baseUrl = "https://toki25.com"
+    private val defaultBaseUrl = "https://toki25.com"
+    private val baseUrlPrefKey = "baseUrl_v2"
+
+    private val preferences: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0)
+    }
+
+    override val baseUrl: String
+        get() = preferences.getString(baseUrlPrefKey, defaultBaseUrl) ?: defaultBaseUrl
 
     override val lang = "ko"
 
     override val supportsLatest = true
 
     private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    private fun guessNextHost(host: String): String? {
+        val regex = Regex("""(.*?toki)(\d+)\.com""")
+        val match = regex.find(host)
+        if (match != null) {
+            val prefix = match.groupValues[1]
+            val num = match.groupValues[2].toInt()
+            val nextNum = num + 1
+            return "$prefix$nextNum.com"
+        }
+        return null
+    }
+
+    private fun isDomainPattern(host: String): Boolean {
+        return host.contains(Regex("""toki\d+\.com"""))
+    }
+
+    private val domainInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val oldBaseUrl = baseUrl
+        
+        val staticHost = defaultBaseUrl.toHttpUrl().host
+        val currentHost = oldBaseUrl.toHttpUrl().host
+        var newRequest = request
+        if (request.url.host == staticHost && currentHost != staticHost) {
+            val newUrl = request.url.newBuilder().host(currentHost).build()
+            newRequest = request.newBuilder().url(newUrl).build()
+        }
+
+        var response: Response
+        try {
+            response = chain.proceed(newRequest)
+        } catch (e: java.io.IOException) {
+            val currentHostName = newRequest.url.host
+            val nextHost = guessNextHost(currentHostName)
+            if (nextHost != null) {
+                val newBaseUrl = "https://$nextHost"
+                preferences.edit().putString(baseUrlPrefKey, newBaseUrl).apply()
+                
+                val retriedUrl = newRequest.url.newBuilder().host(nextHost).build()
+                val retriedRequest = newRequest.newBuilder().url(retriedUrl).build()
+                response = chain.proceed(retriedRequest)
+            } else {
+                throw e
+            }
+        }
+
+        val finalUrl = response.request.url
+        val currentBaseUrlHost = baseUrl.toHttpUrl().host
+        if (finalUrl.host != currentBaseUrlHost && isDomainPattern(finalUrl.host)) {
+            val newBaseUrl = "https://${finalUrl.host}"
+            preferences.edit().putString(baseUrlPrefKey, newBaseUrl).apply()
+        }
+
+        response
+    }
 
     override fun headersBuilder(): Headers.Builder {
         return Headers.Builder()
@@ -49,6 +122,7 @@ class NewToki : HttpSource() {
     }
 
     override val client: OkHttpClient = network.client.newBuilder()
+        .addInterceptor(domainInterceptor)
         .addInterceptor { chain ->
             val request = chain.request()
             val urlString = request.url.toString()
@@ -383,5 +457,26 @@ class NewToki : HttpSource() {
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException("Not used")
+    }
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val baseUrlPref = EditTextPreference(screen.context).apply {
+            key = baseUrlPrefKey
+            title = "도메인 설정 (Base URL)"
+            summary = "현재 주소: %s"
+            setDefaultValue(defaultBaseUrl)
+            dialogTitle = "Base URL"
+            
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    val res = newValue as String
+                    res.toHttpUrl()
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+        }
+        screen.addPreference(baseUrlPref)
     }
 }

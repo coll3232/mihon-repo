@@ -4,7 +4,7 @@
     <application
         android:hasCode="true"
         android:icon="@drawable/icon"
-        android:label="NewToki (toki25)">
+        android:label="toon Ki">
 
         <!-- Tells Tachiyomi/Mihon that this APK is an extension -->
         <meta-data

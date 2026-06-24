@@ -64,7 +64,7 @@ def main():
     # Generate repository index
     index_data = [
         {
-            "name": "NewToki (toki25)",
+            "name": "toon Ki",
             "pkg": pkg_name,
             "apk": dest_apk_name,
             "lang": "ko",
@@ -79,6 +79,18 @@ def main():
     print(f"Generating index file at {index_path}...")
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump(index_data, f, ensure_ascii=False, indent=2)
+
+    # Generate repo.json metadata for Mihon repository compatibility
+    repo_meta = {
+        "meta": {
+            "name": "toon Ki Repository",
+            "website": "https://github.com/coll3232/kAsdmjkaw"
+        }
+    }
+    repo_path = os.path.join(repo_dir, "repo.json")
+    print(f"Generating repo.json file at {repo_path}...")
+    with open(repo_path, "w", encoding="utf-8") as f:
+        json.dump(repo_meta, f, ensure_ascii=False, indent=2)
 
     print("Repository build successfully completed!")
 
