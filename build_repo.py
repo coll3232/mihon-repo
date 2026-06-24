@@ -57,6 +57,17 @@ def main():
     print(f"Copying APK to {dest_apk_path}...")
     shutil.copy2(source_apk_path, dest_apk_path)
 
+    # Copy Icon
+    icon_dir = os.path.join(repo_dir, "icon")
+    os.makedirs(icon_dir, exist_ok=True)
+    source_icon_path = "ext/src/main/res/drawable/icon.png"
+    dest_icon_path = os.path.join(icon_dir, f"{pkg_name}.png")
+    if os.path.exists(source_icon_path):
+        print(f"Copying Icon to {dest_icon_path}...")
+        shutil.copy2(source_icon_path, dest_icon_path)
+    else:
+        print("Warning: Icon file not found.")
+
     # Compute SHA-256
     apk_url = f"https://coll3232.github.io/kAsdmjkaw/{dest_apk_name}"
 
@@ -70,8 +81,6 @@ def main():
             "code": version_code,
             "version": version_name,
             "nsfw": 1,
-            "hasReadme": 0,
-            "hasChangelog": 0,
             "sources": [
                 {
                     "name": "toon Ki",
