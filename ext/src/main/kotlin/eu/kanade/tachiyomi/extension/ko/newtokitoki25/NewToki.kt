@@ -56,7 +56,7 @@ class NewToki : HttpSource(), ConfigurableSource {
 
     override val supportsLatest = true
 
-    private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 
     private fun guessNextHost(host: String): String? {
         val regex = Regex("""(.*?toki)(\d+)\.com""")
