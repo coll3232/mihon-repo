@@ -270,13 +270,20 @@ class NewToki : HttpSource(), ConfigurableSource {
         val htmlContent = response.body!!.string()
         val refererUrl = response.request.url.toString()
 
-        // 1. Extract Next.js payload tokens (lenient regex for formatting changes)
-        val imagesToken = regexExtract(htmlContent, "['\"]?imagesToken['\"]?\\s*[:=]\\s*['\"]([^'\"]+)['\"]")
+        // 1. Extract Next.js payload tokens (handle escaped quotes like \"imagesToken\":\"...\")
+        val imagesToken = regexExtract(htmlContent, "imagesToken\\\\?[\"']\\s*:\\s*\\\\?[\"']([^\\\\\"']+)")
             ?: throw Exception("Failed to parse imagesToken from page")
-        val workId = regexExtract(htmlContent, "['\"]?sourceWorkId['\"]?\\s*[:=]\\s*['\"]?([^'\",\\s}]+)['\"]?")
-            ?: throw Exception("Failed to parse workId from page")
-        val episodeId = regexExtract(htmlContent, "['\"]?episodeId['\"]?\\s*[:=]\\s*['\"]?([^'\",\\s}]+)['\"]?")
-            ?: throw Exception("Failed to parse episodeId from page")
+
+        // 2. Decode JWT payload to get workId and episodeId
+        val tokenParts = imagesToken.split(".")
+        if (tokenParts.size < 2) {
+            throw Exception("Invalid imagesToken format")
+        }
+        val base64Str = tokenParts[0].let { it + "=".repeat((4 - it.length % 4) % 4) }
+        val jwtPayloadStr = String(Base64.decode(base64Str, Base64.URL_SAFE or Base64.NO_WRAP))
+        val jwtPayload = JSONObject(jwtPayloadStr)
+        val workId = jwtPayload.getString("w")
+        val episodeId = jwtPayload.getString("e")
 
         // 2. Fetch nv session cookie if missing or expired
         var nvCookie = ""
