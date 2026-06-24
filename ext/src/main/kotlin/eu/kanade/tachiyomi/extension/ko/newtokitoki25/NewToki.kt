@@ -285,6 +285,9 @@ class NewToki : HttpSource(), ConfigurableSource {
         val workId = jwtPayload.getString("w")
         val episodeId = jwtPayload.getString("e")
 
+        // Determine correct base URL from current request (handles cross-domain redirects)
+        val apiBaseUrl = "${response.request.url.scheme}://${response.request.url.host}"
+
         // 2. Fetch nv session cookie if missing or expired
         var nvCookie = ""
         val cookies = network.client.cookieJar.loadForRequest(response.request.url)
@@ -296,7 +299,7 @@ class NewToki : HttpSource(), ConfigurableSource {
 
         if (nvCookie.isEmpty()) {
             val issueRequest = Request.Builder()
-                .url("$baseUrl/api/nv-issue")
+                .url("$apiBaseUrl/api/nv-issue")
                 .post("{}".toRequestBody("application/json".toMediaType()))
                 .headers(headers)
                 .build()
@@ -337,7 +340,7 @@ class NewToki : HttpSource(), ConfigurableSource {
         }.toString()
 
         val imagesRequest = Request.Builder()
-            .url("$baseUrl/api/webtoon-images")
+            .url("$apiBaseUrl/api/webtoon-images")
             .post(jsonPayload.toRequestBody("application/json".toMediaType()))
             .header("x-images-client", "viewer-v1")
             .header("User-Agent", userAgent)
