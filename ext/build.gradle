@@ -11,8 +11,8 @@ android {
         applicationId 'eu.kanade.tachiyomi.extension.ko.newtokitoki25'
         minSdk 21
         targetSdk 34
-        versionCode 18
-        versionName "1.4.18"
+        versionCode 19
+        versionName "1.4.19"
     }
 
     buildTypes {

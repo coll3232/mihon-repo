@@ -344,7 +344,6 @@ class NewToki : HttpSource(), ConfigurableSource {
             .post(jsonPayload.toRequestBody("application/json".toMediaType()))
             .header("x-images-client", "viewer-v1")
             .header("User-Agent", userAgent)
-            .header("Cookie", "nv=$nvCookie")
             .header("Referer", refererUrl)
             .header("Origin", apiBaseUrl)
             .header("Accept", "*/*")
