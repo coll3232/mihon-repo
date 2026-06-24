@@ -350,7 +350,8 @@ class NewToki : HttpSource(), ConfigurableSource {
 
         val imagesResponse = network.client.newCall(imagesRequest).execute()
         if (!imagesResponse.isSuccessful) {
-            throw Exception("API webtoon-images request failed: Code ${imagesResponse.code}")
+            val errBody = imagesResponse.body?.string() ?: ""
+            throw Exception("API webtoon-images request failed: Code ${imagesResponse.code} - Body: $errBody")
         }
 
         val jsonResponse = JSONObject(imagesResponse.body!!.string())
