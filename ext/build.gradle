@@ -34,7 +34,7 @@ android {
 
 dependencies {
     // Tachiyomi source API (contains HttpSource and other core definitions)
-    compileOnly "com.github.tachiyomiorg:extensions-lib:1.4"
+    compileOnly "com.github.mihonapp:tachiyomix:1.6.0-rc1"
     
     // Provided by host app
     compileOnly "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
