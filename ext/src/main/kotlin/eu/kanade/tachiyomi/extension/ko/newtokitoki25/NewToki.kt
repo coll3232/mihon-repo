@@ -56,7 +56,7 @@ class NewToki : HttpSource(), ConfigurableSource {
 
     override val supportsLatest = true
 
-    private val userAgent: String by lazy {
+    private val dynamicUserAgent: String by lazy {
         try {
             val klass = network.javaClass
             try {
@@ -135,7 +135,7 @@ class NewToki : HttpSource(), ConfigurableSource {
 
     override fun headersBuilder(): Headers.Builder {
         return Headers.Builder()
-            .add("User-Agent", userAgent)
+            .add("User-Agent", dynamicUserAgent)
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
             .add("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
     }
@@ -342,7 +342,7 @@ class NewToki : HttpSource(), ConfigurableSource {
         val nonce = Base64.encodeToString(nonceBytes, Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE)
 
         // Use the exact User-Agent from the response to match the cf_clearance cookie
-        val actualUserAgent = response.request.header("User-Agent") ?: userAgent
+        val actualUserAgent = response.request.header("User-Agent") ?: dynamicUserAgent
 
         // 4. Compute HMAC-SHA256 proof signature
         val message = "$imagesToken.$nonce.$actualUserAgent"
