@@ -56,8 +56,22 @@ class NewToki : HttpSource(), ConfigurableSource {
 
     override val supportsLatest = true
 
-    private val userAgent: String
-        get() = network.defaultUserAgentProvider()
+    private val userAgent: String by lazy {
+        try {
+            val klass = network.javaClass
+            try {
+                val method = klass.getMethod("defaultUserAgentProvider")
+                method.invoke(network) as String
+            } catch (_: Throwable) {
+                val method = klass.getMethod("getDefaultUserAgentProvider")
+                val provider = method.invoke(network)
+                val invokeMethod = provider.javaClass.getMethod("invoke")
+                invokeMethod.invoke(provider) as String
+            }
+        } catch (_: Throwable) {
+            "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
+    }
 
     private fun guessNextHost(host: String): String? {
         val regex = Regex("""(.*?toki)(\d+)\.com""")
