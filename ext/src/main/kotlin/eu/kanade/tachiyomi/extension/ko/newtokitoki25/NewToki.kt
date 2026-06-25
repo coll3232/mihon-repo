@@ -290,136 +290,159 @@ class NewToki : HttpSource(), ConfigurableSource {
 
     // ---------------- Page List (Images API Resolution) ----------------
     override fun pageListParse(response: Response): List<Page> {
-        val htmlContent = response.body!!.string()
-        val refererUrl = response.request.url.toString()
+        android.util.Log.d("NewTokiDebug", "pageListParse start: ${response.request.url}")
+        try {
+            val htmlContent = response.body!!.string()
+            android.util.Log.d("NewTokiDebug", "HTML content length: ${htmlContent.length}")
+            val refererUrl = response.request.url.toString()
 
-        // 1. Extract Next.js payload tokens (handle escaped quotes like \"imagesToken\":\"...\")
-        val imagesToken = regexExtract(htmlContent, "imagesToken\\\\?[\"']\\s*:\\s*\\\\?[\"']([^\\\\\"']+)")
-            ?: throw Exception("Failed to parse imagesToken from page")
-
-        // 2. Decode JWT payload to get workId and episodeId
-        val tokenParts = imagesToken.split(".")
-        if (tokenParts.size < 2) {
-            throw Exception("Invalid imagesToken format")
-        }
-        val base64Str = tokenParts[0].let { it + "=".repeat((4 - it.length % 4) % 4) }
-        val jwtPayloadStr = String(Base64.decode(base64Str, Base64.URL_SAFE or Base64.NO_WRAP))
-        val jwtPayload = JSONObject(jwtPayloadStr)
-        val workId = jwtPayload.getString("w")
-        val episodeId = jwtPayload.getString("e")
-
-        // Determine correct base URL from current request (handles cross-domain redirects)
-        val apiBaseUrl = "${response.request.url.scheme}://${response.request.url.host}"
-
-        // 2. Fetch nv session cookie if missing or expired
-        var nvCookie = ""
-        val cookies = network.client.cookieJar.loadForRequest(response.request.url)
-        for (cookie in cookies) {
-            if (cookie.name == "nv" && cookie.value.length >= 40) {
-                nvCookie = cookie.value
+            // 1. Extract Next.js payload tokens (handle escaped quotes like \"imagesToken\":\"...\")
+            val imagesToken = regexExtract(htmlContent, "imagesToken\\\\?[\"']\\s*:\\s*\\\\?[\"']([^\\\\\"']+)")
+            if (imagesToken == null) {
+                android.util.Log.e("NewTokiDebug", "Failed to parse imagesToken. HTML snippet: ${htmlContent.take(500)}")
+                throw Exception("Failed to parse imagesToken from page")
             }
-        }
+            android.util.Log.d("NewTokiDebug", "Parsed imagesToken: $imagesToken")
 
-        if (nvCookie.isEmpty()) {
-            val issueRequest = Request.Builder()
-                .url("$apiBaseUrl/api/nv-issue")
-                .post("{}".toRequestBody("application/json".toMediaType()))
-                .headers(headers)
-                .build()
-            val issueResponse = network.client.newCall(issueRequest).execute()
-            val setCookies = issueResponse.headers("Set-Cookie")
-            for (c in setCookies) {
-                if (c.startsWith("nv=")) {
-                    nvCookie = c.substringAfter("nv=").substringBefore(";")
-                    val parsedCookie = okhttp3.Cookie.parse(response.request.url, c)
-                    if (parsedCookie != null) {
-                        network.client.cookieJar.saveFromResponse(response.request.url, listOf(parsedCookie))
-                    }
-                    break
+            // 2. Decode JWT payload to get workId and episodeId
+            val tokenParts = imagesToken.split(".")
+            if (tokenParts.size < 2) {
+                throw Exception("Invalid imagesToken format")
+            }
+            val base64Str = tokenParts[0].let { it + "=".repeat((4 - it.length % 4) % 4) }
+            val jwtPayloadStr = String(Base64.decode(base64Str, Base64.URL_SAFE or Base64.NO_WRAP))
+            val jwtPayload = JSONObject(jwtPayloadStr)
+            val workId = jwtPayload.getString("w")
+            val episodeId = jwtPayload.getString("e")
+            android.util.Log.d("NewTokiDebug", "Decoded JWT: workId=$workId, episodeId=$episodeId")
+
+            // Determine correct base URL from current request (handles cross-domain redirects)
+            val apiBaseUrl = "${response.request.url.scheme}://${response.request.url.host}"
+
+            // 2. Fetch nv session cookie if missing or expired
+            var nvCookie = ""
+            val cookies = network.client.cookieJar.loadForRequest(response.request.url)
+            for (cookie in cookies) {
+                if (cookie.name == "nv" && cookie.value.length >= 40) {
+                    nvCookie = cookie.value
                 }
             }
-        }
+            android.util.Log.d("NewTokiDebug", "Initial nv cookie from jar: $nvCookie")
 
-        if (nvCookie.isEmpty()) {
-            throw Exception("Failed to acquire nv validation session cookie")
-        }
-
-        // 3. Generate 24-byte random nonce and Base64Url encode it
-        val nonceBytes = ByteArray(24)
-        SecureRandom().nextBytes(nonceBytes)
-        val nonce = Base64.encodeToString(nonceBytes, Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE)
-
-        // Use the exact User-Agent from the response to match the cf_clearance cookie
-        val actualUserAgent = response.request.header("User-Agent") ?: dynamicUserAgent
-
-        // 4. Compute HMAC-SHA256 proof signature
-        val message = "$imagesToken.$nonce.$actualUserAgent"
-        val mac = Mac.getInstance("HmacSHA256")
-        val secretKey = SecretKeySpec(nvCookie.toByteArray(Charsets.UTF_8), "HmacSHA256")
-        mac.init(secretKey)
-        val signatureBytes = mac.doFinal(message.toByteArray(Charsets.UTF_8))
-        val proof = Base64.encodeToString(signatureBytes, Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE)
-
-        // 5. Send POST request to /api/webtoon-images
-        val jsonPayload = JSONObject().apply {
-            put("workId", workId)
-            put("episodeId", episodeId)
-            put("token", imagesToken)
-            put("nonce", nonce)
-            put("proof", proof)
-        }.toString()
-
-        // Combine CookieJar cookies (e.g. cf_clearance) with the nv cookie manually to ensure none are missed
-        val allCookiesList = network.client.cookieJar.loadForRequest(response.request.url)
-        var combinedCookies = allCookiesList.joinToString("; ") { "${it.name}=${it.value}" }
-        if (!combinedCookies.contains("nv=")) {
-            combinedCookies += (if (combinedCookies.isNotEmpty()) "; " else "") + "nv=$nvCookie"
-        }
-
-        val imagesRequest = Request.Builder()
-            .url("$apiBaseUrl/api/webtoon-images")
-            .post(jsonPayload.toRequestBody("application/json".toMediaType()))
-            .headers(headers) // Includes Accept-Language and default User-Agent
-            .header("x-images-client", "viewer-v1")
-            .header("User-Agent", actualUserAgent) // Overrides default with actual Webview UA
-            .header("Cookie", combinedCookies)
-            .header("Referer", refererUrl)
-            .header("Origin", apiBaseUrl)
-            .header("Accept", "*/*")
-            .header("Sec-Fetch-Dest", "empty")
-            .header("Sec-Fetch-Mode", "cors")
-            .header("Sec-Fetch-Site", "same-origin")
-            .build()
-
-        val imagesResponse = network.client.newCall(imagesRequest).execute()
-        if (!imagesResponse.isSuccessful) {
-            val errBody = imagesResponse.body?.string() ?: ""
-            val titleMatch = Regex("<title>(.*?)</title>").find(errBody)
-            val shortBody = if (titleMatch != null) {
-                "HTML Title: ${titleMatch.groupValues[1]}"
-            } else {
-                errBody.take(150)
+            if (nvCookie.isEmpty()) {
+                android.util.Log.d("NewTokiDebug", "nv cookie empty. Requesting nv-issue...")
+                val issueRequest = Request.Builder()
+                    .url("$apiBaseUrl/api/nv-issue")
+                    .post("{}".toRequestBody("application/json".toMediaType()))
+                    .headers(headers)
+                    .build()
+                val issueResponse = network.client.newCall(issueRequest).execute()
+                android.util.Log.d("NewTokiDebug", "nv-issue response code: ${issueResponse.code}")
+                val setCookies = issueResponse.headers("Set-Cookie")
+                for (c in setCookies) {
+                    if (c.startsWith("nv=")) {
+                        nvCookie = c.substringAfter("nv=").substringBefore(";")
+                        val parsedCookie = okhttp3.Cookie.parse(response.request.url, c)
+                        if (parsedCookie != null) {
+                            network.client.cookieJar.saveFromResponse(response.request.url, listOf(parsedCookie))
+                            android.util.Log.d("NewTokiDebug", "Saved new nv cookie: $nvCookie")
+                        }
+                        break
+                    }
+                }
             }
-            throw Exception("API 403 Blocked - $shortBody")
-        }
 
-        val jsonResponse = JSONObject(imagesResponse.body!!.string())
-        if (!jsonResponse.optBoolean("ok", false)) {
-            throw Exception("API webtoon-images error: " + jsonResponse.optString("error", "Unknown error"))
-        }
+            if (nvCookie.isEmpty()) {
+                throw Exception("Failed to acquire nv validation session cookie")
+            }
 
-        val jsonImages = jsonResponse.getJSONArray("images")
-        val pages = mutableListOf<Page>()
-        for (i in 0 until jsonImages.length()) {
-            val imgObj = jsonImages.getJSONObject(i)
-            val pageIndex = imgObj.getInt("page") - 1
-            val shuffledSrc = imgObj.getString("shuffledSrc")
-            val shuffleSeed = imgObj.optString("shuffleSeed", "")
-            
-            // Tachiyomi expects Page url parameter. We append the seed as a URL fragment hash.
-            pages.add(Page(pageIndex, "", "$shuffledSrc#seed=$shuffleSeed"))
+            // 3. Generate 24-byte random nonce and Base64Url encode it
+            val nonceBytes = ByteArray(24)
+            SecureRandom().nextBytes(nonceBytes)
+            val nonce = Base64.encodeToString(nonceBytes, Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE)
+
+            // Use the exact User-Agent from the response to match the cf_clearance cookie
+            val actualUserAgent = response.request.header("User-Agent") ?: dynamicUserAgent
+            android.util.Log.d("NewTokiDebug", "actualUserAgent: $actualUserAgent")
+
+            // 4. Compute HMAC-SHA256 proof signature
+            val message = "$imagesToken.$nonce.$actualUserAgent"
+            val mac = Mac.getInstance("HmacSHA256")
+            val secretKey = SecretKeySpec(nvCookie.toByteArray(Charsets.UTF_8), "HmacSHA256")
+            mac.init(secretKey)
+            val signatureBytes = mac.doFinal(message.toByteArray(Charsets.UTF_8))
+            val proof = Base64.encodeToString(signatureBytes, Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE)
+
+            // 5. Send POST request to /api/webtoon-images
+            val jsonPayload = JSONObject().apply {
+                put("workId", workId)
+                put("episodeId", episodeId)
+                put("token", imagesToken)
+                put("nonce", nonce)
+                put("proof", proof)
+            }.toString()
+
+            // Combine CookieJar cookies (e.g. cf_clearance) with the nv cookie manually to ensure none are missed
+            val allCookiesList = network.client.cookieJar.loadForRequest(response.request.url)
+            android.util.Log.d("NewTokiDebug", "All cookies from jar: ${allCookiesList.joinToString("; ") { "${it.name}=${it.value}" }}")
+            var combinedCookies = allCookiesList.joinToString("; ") { "${it.name}=${it.value}" }
+            if (!combinedCookies.contains("nv=")) {
+                combinedCookies += (if (combinedCookies.isNotEmpty()) "; " else "") + "nv=$nvCookie"
+            }
+
+            val imagesRequest = Request.Builder()
+                .url("$apiBaseUrl/api/webtoon-images")
+                .post(jsonPayload.toRequestBody("application/json".toMediaType()))
+                .headers(headers)
+                .header("x-images-client", "viewer-v1")
+                .header("User-Agent", actualUserAgent)
+                .header("Cookie", combinedCookies)
+                .header("Referer", refererUrl)
+                .header("Origin", apiBaseUrl)
+                .header("Accept", "*/*")
+                .header("Sec-Fetch-Dest", "empty")
+                .header("Sec-Fetch-Mode", "cors")
+                .header("Sec-Fetch-Site", "same-origin")
+                .build()
+
+            android.util.Log.d("NewTokiDebug", "Sending /api/webtoon-images request...")
+            val imagesResponse = network.client.newCall(imagesRequest).execute()
+            android.util.Log.d("NewTokiDebug", "webtoon-images response code: ${imagesResponse.code}")
+            if (!imagesResponse.isSuccessful) {
+                val errBody = imagesResponse.body?.string() ?: ""
+                android.util.Log.e("NewTokiDebug", "webtoon-images failed. body: $errBody")
+                val titleMatch = Regex("<title>(.*?)</title>").find(errBody)
+                val shortBody = if (titleMatch != null) {
+                    "HTML Title: ${titleMatch.groupValues[1]}"
+                } else {
+                    errBody.take(150)
+                }
+                throw Exception("API 403 Blocked - $shortBody")
+            }
+
+            val respBodyStr = imagesResponse.body!!.string()
+            android.util.Log.d("NewTokiDebug", "webtoon-images success. body: $respBodyStr")
+            val jsonResponse = JSONObject(respBodyStr)
+            if (!jsonResponse.optBoolean("ok", false)) {
+                throw Exception("API webtoon-images error: " + jsonResponse.optString("error", "Unknown error"))
+            }
+
+            val jsonImages = jsonResponse.getJSONArray("images")
+            val pages = mutableListOf<Page>()
+            for (i in 0 until jsonImages.length()) {
+                val imgObj = jsonImages.getJSONObject(i)
+                val pageIndex = imgObj.getInt("page") - 1
+                val shuffledSrc = imgObj.getString("shuffledSrc")
+                val shuffleSeed = imgObj.optString("shuffleSeed", "")
+                pages.add(Page(pageIndex, "", "$shuffledSrc#seed=$shuffleSeed"))
+            }
+            android.util.Log.d("NewTokiDebug", "Parsed pages size: ${pages.size}")
+            return pages
+        } catch (e: Exception) {
+            android.util.Log.e("NewTokiDebug", "Exception in pageListParse: ${e.message}", e)
+            throw e
         }
-        return pages
+    }
     }
 
     private fun regexExtract(html: String, pattern: String): String? {
