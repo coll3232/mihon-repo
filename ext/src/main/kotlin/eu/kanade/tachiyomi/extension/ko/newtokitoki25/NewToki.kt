@@ -292,6 +292,14 @@ class NewToki : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         android.util.Log.d("NewTokiDebug", "pageListParse start: ${response.request.url}")
         try {
+            // Create a clean OkHttpClient to bypass the app-wide UserAgentInterceptor and CloudflareInterceptor
+            val cleanClient = OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+
             val htmlContent = response.body!!.string()
             android.util.Log.d("NewTokiDebug", "HTML content length: ${htmlContent.length}")
             val refererUrl = response.request.url.toString()
@@ -336,8 +344,12 @@ class NewToki : HttpSource(), ConfigurableSource {
                     .post("{}".toRequestBody("application/json".toMediaType()))
                     .headers(headers)
                     .build()
-                val issueResponse = network.client.newCall(issueRequest).execute()
+                val issueResponse = cleanClient.newCall(issueRequest).execute()
                 android.util.Log.d("NewTokiDebug", "nv-issue response code: ${issueResponse.code}")
+                if (!issueResponse.isSuccessful) {
+                    val errBody = issueResponse.body?.string() ?: ""
+                    android.util.Log.e("NewTokiDebug", "nv-issue failed. body: $errBody")
+                }
                 val setCookies = issueResponse.headers("Set-Cookie")
                 for (c in setCookies) {
                     if (c.startsWith("nv=")) {
@@ -406,7 +418,7 @@ class NewToki : HttpSource(), ConfigurableSource {
                 .build()
 
             android.util.Log.d("NewTokiDebug", "Sending /api/webtoon-images request...")
-            val imagesResponse = network.client.newCall(imagesRequest).execute()
+            val imagesResponse = cleanClient.newCall(imagesRequest).execute()
             android.util.Log.d("NewTokiDebug", "webtoon-images response code: ${imagesResponse.code}")
             if (!imagesResponse.isSuccessful) {
                 val errBody = imagesResponse.body?.string() ?: ""
