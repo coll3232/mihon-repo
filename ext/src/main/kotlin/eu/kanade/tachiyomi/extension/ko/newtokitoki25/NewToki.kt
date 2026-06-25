@@ -443,7 +443,6 @@ class NewToki : HttpSource(), ConfigurableSource {
             throw e
         }
     }
-    }
 
     private fun regexExtract(html: String, pattern: String): String? {
         val matcher = java.util.regex.Pattern.compile(pattern).matcher(html)
