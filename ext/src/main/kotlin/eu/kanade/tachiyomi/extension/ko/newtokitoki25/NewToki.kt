@@ -65,8 +65,12 @@ class NewToki : HttpSource(), ConfigurableSource {
             } catch (_: Throwable) {
                 val method = klass.getMethod("getDefaultUserAgentProvider")
                 val provider = method.invoke(network)
-                val invokeMethod = provider.javaClass.getMethod("invoke")
-                invokeMethod.invoke(provider) as String
+                if (provider != null) {
+                    val invokeMethod = provider.javaClass.getMethod("invoke")
+                    invokeMethod.invoke(provider) as String
+                } else {
+                    throw Exception("Null provider")
+                }
             }
         } catch (_: Throwable) {
             "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
