@@ -331,6 +331,10 @@ class NewToki : HttpSource(), ConfigurableSource {
             for (c in setCookies) {
                 if (c.startsWith("nv=")) {
                     nvCookie = c.substringAfter("nv=").substringBefore(";")
+                    val parsedCookie = okhttp3.Cookie.parse(response.request.url, c)
+                    if (parsedCookie != null) {
+                        network.client.cookieJar.saveFromResponse(response.request.url, listOf(parsedCookie))
+                    }
                     break
                 }
             }
