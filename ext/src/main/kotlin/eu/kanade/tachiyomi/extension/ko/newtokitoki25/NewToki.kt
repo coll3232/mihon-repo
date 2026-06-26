@@ -50,7 +50,7 @@ class NewToki : HttpSource(), ConfigurableSource {
     }
 
     override val baseUrl: String
-        get() = preferences.getString(baseUrlPrefKey, defaultBaseUrl) ?: defaultBaseUrl
+        get() = "http://10.0.2.2:8080"
 
     override val lang = "ko"
 
